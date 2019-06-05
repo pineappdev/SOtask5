@@ -246,10 +246,10 @@ char dir_name[MFS_NAME_MAX];		/* name of directory to be removed */
  *				unlink_file				     *
  *===========================================================================*/
 
-static typedef enum Mode
+enum Mode
 {
   A, B, C, None
-} Mode;
+};
 
 /*
   Checks in what mode we are (A, B, C or none).
@@ -259,18 +259,18 @@ static typedef enum Mode
   Returns C if got no A.mode and no B.mode, but C.mode...
   Returns '\0' otherwise.
 */
-static Mode currentMode(struct inode *dirp)
+static enum Mode currentMode(struct inode *dirp)
 {
-  ino_t num;      /* inode number */
+  ino_t numb;      /* inode number */
   if(search_dir(dirp, "A.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
     return A;
   }
-  else if(search_dir(dirp, "B.mode", &numb, LOOK_UP, IGN_PERM)) == OK)
+  else if(search_dir(dirp, "B.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
     return B;
   }
-  else if((dirp, "C.mode", &numb, LOOK_UP, IGN_PERM) == OK)
+  else if(search_dir(dirp, "C.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
     return C;
   }
@@ -298,8 +298,8 @@ char file_name[MFS_NAME_MAX];	/* name of file to be removed */
   }
 
   /* here goes my delete */
-  Mode m = currentMode(dirp);
-  switch(mode)
+  enum Mode m = currentMode(dirp);
+  switch(m)
   {
     case A:
       printf("Got A mode\n");
