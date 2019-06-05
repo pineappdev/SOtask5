@@ -261,17 +261,21 @@ enum Mode
 */
 static enum Mode currentMode(struct inode *dirp)
 {
+  printf("Finding current mode\n");
   ino_t numb;      /* inode number */
   if(search_dir(dirp, "A.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
+    printf("Found A\n");
     return A;
   }
   else if(search_dir(dirp, "B.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
+    printf("Found B\n");
     return B;
   }
   else if(search_dir(dirp, "C.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
+    printf("Found C\n");
     return C;
   }
   else return None;
@@ -314,6 +318,7 @@ char file_name[MFS_NAME_MAX];	/* name of file to be removed */
       return OK;
       break;
     default:
+      printf("Found none :c\n")
       return OK;
   }
 
