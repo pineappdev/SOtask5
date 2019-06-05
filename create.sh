@@ -1,0 +1,1 @@
+qemu-img create -f qcow2 -o backing_file=backup_minix.img minix.img

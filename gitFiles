@@ -1,0 +1,11 @@
+minix.img
+create.sh
+launch.sh
+sshfs.sh
+
+minix/usr/src/minix/fs/mfs/inode.h
+minix/usr/src/minix/fs/mfs/inode.c
+minix/usr/src/minix/fs/mfs/link.c
+
+gitFiles
+
