@@ -341,8 +341,7 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
       printf("GOT C\n");
       return OK;
     default:
-      printf("GOT none\n");
-      return OK;
+      break;
     }
   }
 
