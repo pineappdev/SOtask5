@@ -337,8 +337,6 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
       printf("GOT C\n");
       return OK;
     default:
-      printf("GOT none\n");
-      return OK;
     }
 
     r = search_dir(dirp, file_name, NULL, DELETE, IGN_PERM);
