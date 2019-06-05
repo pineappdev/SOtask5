@@ -281,19 +281,22 @@ static enum Mode getCurrentMode(struct inode *dirp)
     return None;
 }
 
-/* Checks whether file_name is A.mode, B.mode or C.mode */
-static bool checkFileName(const char *const file_name)
+/*
+  Checks whether file_name is A.mode, B.mode or C.mode
+  Returns 1 if it is one of them, 0 otherwise.
+*/
+static int checkFileName(const char *const file_name)
 {
   if (strcmp(file_name, "A.mode") == 0)
   {
-    return true;
+    return 1;
   }
   else if (strcmp(file_name, "B.mode") == 0)
   {
-    return true;
+    return 1;
   }
   else
-    return strcmp(file_name, "C.mode") == 0 ? true : false;
+    return strcmp(file_name, "C.mode") == 0;
 }
 
 /*===========================================================================*
@@ -323,12 +326,13 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
     dup_inode(rip); /* inode will be returned with put_inode */
   }
 
-  if (!checkFileName(file_name))  // if file_name is A.mode, B.mode or C.mode, then remove it normally
+  if (!checkFileName(file_name))
   {
     enum Mode m = getCurrentMode(dirp);
     switch (m)
     {
     case A:
+      printf("GOT A\n");
       return OK;
     case B:
       printf("GOT B\n");
@@ -337,296 +341,299 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
       printf("GOT C\n");
       return OK;
     default:
+      printf("GOT none\n");
+      return OK;
     }
+  }
 
-    r = search_dir(dirp, file_name, NULL, DELETE, IGN_PERM);
+  r = search_dir(dirp, file_name, NULL, DELETE, IGN_PERM);
 
-    if (r == OK)
-    {
-      rip->i_nlinks--; /* entry deleted from parent's dir */
-      rip->i_update |= CTIME;
-      IN_MARKDIRTY(rip);
-    }
+  if (r == OK)
+  {
+    rip->i_nlinks--; /* entry deleted from parent's dir */
+    rip->i_update |= CTIME;
+    IN_MARKDIRTY(rip);
+  }
 
-    put_inode(rip);
+  put_inode(rip);
+  return (r);
+}
+
+/*===========================================================================*
+ *				fs_rename				     *
+ *===========================================================================*/
+int fs_rename()
+{
+  /* Perform the rename(name1, name2) system call. */
+  struct inode *old_dirp, *old_ip; /* ptrs to old dir, file inodes */
+  struct inode *new_dirp, *new_ip; /* ptrs to new dir, file inodes */
+  struct inode *new_superdirp, *next_new_superdirp;
+  int r = OK;     /* error flag; initially no error */
+  int odir, ndir; /* TRUE iff {old|new} file is dir */
+  int same_pdir;  /* TRUE iff parent dirs are the same */
+  char old_name[MFS_NAME_MAX], new_name[MFS_NAME_MAX];
+  ino_t numb;
+  phys_bytes len;
+
+  /* Copy the last component of the old name */
+  len = min((unsigned)fs_m_in.m_vfs_fs_rename.len_old, sizeof(old_name));
+  r = sys_safecopyfrom(VFS_PROC_NR, fs_m_in.m_vfs_fs_rename.grant_old,
+                       (vir_bytes)0, (vir_bytes)old_name, (size_t)len);
+  if (r != OK)
+    return r;
+  NUL(old_name, len, sizeof(old_name));
+
+  /* Copy the last component of the new name */
+  len = min((unsigned)fs_m_in.m_vfs_fs_rename.len_new, sizeof(new_name));
+  r = sys_safecopyfrom(VFS_PROC_NR, fs_m_in.m_vfs_fs_rename.grant_new,
+                       (vir_bytes)0, (vir_bytes)new_name, (size_t)len);
+  if (r != OK)
+    return r;
+  NUL(new_name, len, sizeof(new_name));
+
+  /* Get old dir inode */
+  if ((old_dirp = get_inode(fs_dev, fs_m_in.m_vfs_fs_rename.dir_old)) == NULL)
+    return (err_code);
+
+  old_ip = advance(old_dirp, old_name, IGN_PERM);
+  r = err_code;
+
+  if (r == EENTERMOUNT || r == ELEAVEMOUNT)
+  {
+    put_inode(old_ip);
+    old_ip = NULL;
+    if (r == EENTERMOUNT)
+      r = EXDEV; /* should this fail at all? */
+    else if (r == ELEAVEMOUNT)
+      r = EINVAL; /* rename on dot-dot */
+  }
+
+  if (old_ip == NULL)
+  {
+    put_inode(old_dirp);
     return (r);
   }
 
-  /*===========================================================================*
- *				fs_rename				     *
- *===========================================================================*/
-  int fs_rename()
+  /* Get new dir inode */
+  if ((new_dirp = get_inode(fs_dev, fs_m_in.m_vfs_fs_rename.dir_new)) == NULL)
   {
-    /* Perform the rename(name1, name2) system call. */
-    struct inode *old_dirp, *old_ip; /* ptrs to old dir, file inodes */
-    struct inode *new_dirp, *new_ip; /* ptrs to new dir, file inodes */
-    struct inode *new_superdirp, *next_new_superdirp;
-    int r = OK;     /* error flag; initially no error */
-    int odir, ndir; /* TRUE iff {old|new} file is dir */
-    int same_pdir;  /* TRUE iff parent dirs are the same */
-    char old_name[MFS_NAME_MAX], new_name[MFS_NAME_MAX];
-    ino_t numb;
-    phys_bytes len;
-
-    /* Copy the last component of the old name */
-    len = min((unsigned)fs_m_in.m_vfs_fs_rename.len_old, sizeof(old_name));
-    r = sys_safecopyfrom(VFS_PROC_NR, fs_m_in.m_vfs_fs_rename.grant_old,
-                         (vir_bytes)0, (vir_bytes)old_name, (size_t)len);
-    if (r != OK)
-      return r;
-    NUL(old_name, len, sizeof(old_name));
-
-    /* Copy the last component of the new name */
-    len = min((unsigned)fs_m_in.m_vfs_fs_rename.len_new, sizeof(new_name));
-    r = sys_safecopyfrom(VFS_PROC_NR, fs_m_in.m_vfs_fs_rename.grant_new,
-                         (vir_bytes)0, (vir_bytes)new_name, (size_t)len);
-    if (r != OK)
-      return r;
-    NUL(new_name, len, sizeof(new_name));
-
-    /* Get old dir inode */
-    if ((old_dirp = get_inode(fs_dev, fs_m_in.m_vfs_fs_rename.dir_old)) == NULL)
-      return (err_code);
-
-    old_ip = advance(old_dirp, old_name, IGN_PERM);
-    r = err_code;
-
-    if (r == EENTERMOUNT || r == ELEAVEMOUNT)
-    {
-      put_inode(old_ip);
-      old_ip = NULL;
-      if (r == EENTERMOUNT)
-        r = EXDEV; /* should this fail at all? */
-      else if (r == ELEAVEMOUNT)
-        r = EINVAL; /* rename on dot-dot */
-    }
-
-    if (old_ip == NULL)
-    {
-      put_inode(old_dirp);
-      return (r);
-    }
-
-    /* Get new dir inode */
-    if ((new_dirp = get_inode(fs_dev, fs_m_in.m_vfs_fs_rename.dir_new)) == NULL)
-    {
+    put_inode(old_ip);
+    put_inode(old_dirp);
+    return (err_code);
+  }
+  else
+  {
+    if (new_dirp->i_nlinks == NO_LINK)
+    { /* Dir does not actually exist */
       put_inode(old_ip);
       put_inode(old_dirp);
-      return (err_code);
+      put_inode(new_dirp);
+      return (ENOENT);
+    }
+  }
+
+  new_ip = advance(new_dirp, new_name, IGN_PERM); /* not required to exist */
+
+  /* However, if the check failed because the file does exist, don't continue.
+   * Note that ELEAVEMOUNT is covered by the dot-dot check later. */
+  if (err_code == EENTERMOUNT)
+  {
+    put_inode(new_ip);
+    new_ip = NULL;
+    r = EBUSY;
+  }
+
+  odir = ((old_ip->i_mode & I_TYPE) == I_DIRECTORY); /* TRUE iff dir */
+
+  /* If it is ok, check for a variety of possible errors. */
+  if (r == OK)
+  {
+    same_pdir = (old_dirp == new_dirp);
+
+    /* The old inode must not be a superdirectory of the new last dir. */
+    if (odir && !same_pdir)
+    {
+      dup_inode(new_superdirp = new_dirp);
+      while (TRUE)
+      { /* may hang in a file system loop */
+        if (new_superdirp == old_ip)
+        {
+          put_inode(new_superdirp);
+          r = EINVAL;
+          break;
+        }
+        next_new_superdirp = advance(new_superdirp, dot2,
+                                     IGN_PERM);
+
+        put_inode(new_superdirp);
+        if (next_new_superdirp == new_superdirp)
+        {
+          put_inode(new_superdirp);
+          break;
+        }
+        if (err_code == ELEAVEMOUNT)
+        {
+          /* imitate that we are back at the root,
+				 * cross device checked already on VFS */
+          put_inode(next_new_superdirp);
+          err_code = OK;
+          break;
+        }
+        new_superdirp = next_new_superdirp;
+        if (new_superdirp == NULL)
+        {
+          /* Missing ".." entry.  Assume the worst. */
+          r = EINVAL;
+          break;
+        }
+      }
+    }
+
+    /* The old or new name must not be . or .. */
+    if (strcmp(old_name, ".") == 0 || strcmp(old_name, "..") == 0 ||
+        strcmp(new_name, ".") == 0 || strcmp(new_name, "..") == 0)
+    {
+      r = EINVAL;
+    }
+    /* Both parent directories must be on the same device. 
+	if(old_dirp->i_dev != new_dirp->i_dev) r = EXDEV; */
+
+    /* Some tests apply only if the new path exists. */
+    if (new_ip == NULL)
+    {
+      /* don't rename a file with a file system mounted on it. 
+		if (old_ip->i_dev != old_dirp->i_dev) r = EXDEV;*/
+      if (odir && new_dirp->i_nlinks >= LINK_MAX &&
+          !same_pdir && r == OK)
+      {
+        r = EMLINK;
+      }
     }
     else
     {
-      if (new_dirp->i_nlinks == NO_LINK)
-      { /* Dir does not actually exist */
-        put_inode(old_ip);
-        put_inode(old_dirp);
-        put_inode(new_dirp);
-        return (ENOENT);
-      }
+      if (old_ip == new_ip)
+        r = SAME; /* old=new */
+
+      ndir = ((new_ip->i_mode & I_TYPE) == I_DIRECTORY); /* dir ? */
+      if (odir == TRUE && ndir == FALSE)
+        r = ENOTDIR;
+      if (odir == FALSE && ndir == TRUE)
+        r = EISDIR;
     }
+  }
 
-    new_ip = advance(new_dirp, new_name, IGN_PERM); /* not required to exist */
-
-    /* However, if the check failed because the file does exist, don't continue.
-   * Note that ELEAVEMOUNT is covered by the dot-dot check later. */
-    if (err_code == EENTERMOUNT)
-    {
-      put_inode(new_ip);
-      new_ip = NULL;
-      r = EBUSY;
-    }
-
-    odir = ((old_ip->i_mode & I_TYPE) == I_DIRECTORY); /* TRUE iff dir */
-
-    /* If it is ok, check for a variety of possible errors. */
-    if (r == OK)
-    {
-      same_pdir = (old_dirp == new_dirp);
-
-      /* The old inode must not be a superdirectory of the new last dir. */
-      if (odir && !same_pdir)
-      {
-        dup_inode(new_superdirp = new_dirp);
-        while (TRUE)
-        { /* may hang in a file system loop */
-          if (new_superdirp == old_ip)
-          {
-            put_inode(new_superdirp);
-            r = EINVAL;
-            break;
-          }
-          next_new_superdirp = advance(new_superdirp, dot2,
-                                       IGN_PERM);
-
-          put_inode(new_superdirp);
-          if (next_new_superdirp == new_superdirp)
-          {
-            put_inode(new_superdirp);
-            break;
-          }
-          if (err_code == ELEAVEMOUNT)
-          {
-            /* imitate that we are back at the root,
-				 * cross device checked already on VFS */
-            put_inode(next_new_superdirp);
-            err_code = OK;
-            break;
-          }
-          new_superdirp = next_new_superdirp;
-          if (new_superdirp == NULL)
-          {
-            /* Missing ".." entry.  Assume the worst. */
-            r = EINVAL;
-            break;
-          }
-        }
-      }
-
-      /* The old or new name must not be . or .. */
-      if (strcmp(old_name, ".") == 0 || strcmp(old_name, "..") == 0 ||
-          strcmp(new_name, ".") == 0 || strcmp(new_name, "..") == 0)
-      {
-        r = EINVAL;
-      }
-      /* Both parent directories must be on the same device. 
-	if(old_dirp->i_dev != new_dirp->i_dev) r = EXDEV; */
-
-      /* Some tests apply only if the new path exists. */
-      if (new_ip == NULL)
-      {
-        /* don't rename a file with a file system mounted on it. 
-		if (old_ip->i_dev != old_dirp->i_dev) r = EXDEV;*/
-        if (odir && new_dirp->i_nlinks >= LINK_MAX &&
-            !same_pdir && r == OK)
-        {
-          r = EMLINK;
-        }
-      }
-      else
-      {
-        if (old_ip == new_ip)
-          r = SAME; /* old=new */
-
-        ndir = ((new_ip->i_mode & I_TYPE) == I_DIRECTORY); /* dir ? */
-        if (odir == TRUE && ndir == FALSE)
-          r = ENOTDIR;
-        if (odir == FALSE && ndir == TRUE)
-          r = EISDIR;
-      }
-    }
-
-    /* If a process has another root directory than the system root, we might
+  /* If a process has another root directory than the system root, we might
    * "accidently" be moving it's working directory to a place where it's
    * root directory isn't a super directory of it anymore. This can make
    * the function chroot useless. If chroot will be used often we should
    * probably check for it here. */
 
-    /* The rename will probably work. Only two things can go wrong now:
+  /* The rename will probably work. Only two things can go wrong now:
    * 1. being unable to remove the new file. (when new file already exists)
    * 2. being unable to make the new directory entry. (new file doesn't exists)
    *     [directory has to grow by one block and cannot because the disk
    *      is completely full].
    */
-    if (r == OK)
+  if (r == OK)
+  {
+    if (new_ip != NULL)
     {
-      if (new_ip != NULL)
-      {
-        /* There is already an entry for 'new'. Try to remove it. */
-        if (odir)
-          r = remove_dir(new_dirp, new_ip, new_name);
-        else
-          r = unlink_file(new_dirp, new_ip, new_name);
-      }
-      /* if r is OK, the rename will succeed, while there is now an
-	 * unused entry in the new parent directory. */
+      /* There is already an entry for 'new'. Try to remove it. */
+      if (odir)
+        r = remove_dir(new_dirp, new_ip, new_name);
+      else
+        r = unlink_file(new_dirp, new_ip, new_name);
     }
+    /* if r is OK, the rename will succeed, while there is now an
+	 * unused entry in the new parent directory. */
+  }
 
-    if (r == OK)
-    {
-      /* If the new name will be in the same parent directory as the old
+  if (r == OK)
+  {
+    /* If the new name will be in the same parent directory as the old
 	   * one, first remove the old name to free an entry for the new name,
 	   * otherwise first try to create the new name entry to make sure
 	   * the rename will succeed.
 	   */
-      numb = old_ip->i_num; /* inode number of old file */
+    numb = old_ip->i_num; /* inode number of old file */
 
-      if (same_pdir)
-      {
-        r = search_dir(old_dirp, old_name, NULL, DELETE, IGN_PERM);
-        /* shouldn't go wrong. */
-        if (r == OK)
-          (void)search_dir(old_dirp, new_name, &numb, ENTER,
-                           IGN_PERM);
-      }
-      else
-      {
-        r = search_dir(new_dirp, new_name, &numb, ENTER, IGN_PERM);
-        if (r == OK)
-          (void)search_dir(old_dirp, old_name, NULL, DELETE,
-                           IGN_PERM);
-      }
-    }
-    /* If r is OK, the ctime and mtime of old_dirp and new_dirp have been marked
-   * for update in search_dir. */
-
-    if (r == OK && odir && !same_pdir)
+    if (same_pdir)
     {
-      /* Update the .. entry in the directory (still points to old_dirp).*/
-      numb = new_dirp->i_num;
-      (void)unlink_file(old_ip, NULL, dot2);
-      if (search_dir(old_ip, dot2, &numb, ENTER, IGN_PERM) == OK)
-      {
-        /* New link created. */
-        new_dirp->i_nlinks++;
-        IN_MARKDIRTY(new_dirp);
-      }
-    }
-
-    /* Release the inodes. */
-    put_inode(old_dirp);
-    put_inode(old_ip);
-    put_inode(new_dirp);
-    put_inode(new_ip);
-    return (r == SAME ? OK : r);
-  }
-
-  /*===========================================================================*
- *				fs_ftrunc				     *
- *===========================================================================*/
-  int fs_ftrunc(void)
-  {
-    struct inode *rip;
-    off_t start, end;
-    int r;
-
-    if ((rip = find_inode(fs_dev, fs_m_in.m_vfs_fs_ftrunc.inode)) == NULL)
-      return (EINVAL);
-
-    if (rip->i_sp->s_rd_only)
-    {
-      r = EROFS;
+      r = search_dir(old_dirp, old_name, NULL, DELETE, IGN_PERM);
+      /* shouldn't go wrong. */
+      if (r == OK)
+        (void)search_dir(old_dirp, new_name, &numb, ENTER,
+                         IGN_PERM);
     }
     else
     {
-      start = fs_m_in.m_vfs_fs_ftrunc.trc_start;
-      end = fs_m_in.m_vfs_fs_ftrunc.trc_end;
-
-      if (end == 0)
-        r = truncate_inode(rip, start);
-      else
-        r = freesp_inode(rip, start, end);
+      r = search_dir(new_dirp, new_name, &numb, ENTER, IGN_PERM);
+      if (r == OK)
+        (void)search_dir(old_dirp, old_name, NULL, DELETE,
+                         IGN_PERM);
     }
+  }
+  /* If r is OK, the ctime and mtime of old_dirp and new_dirp have been marked
+   * for update in search_dir. */
 
-    return (r);
+  if (r == OK && odir && !same_pdir)
+  {
+    /* Update the .. entry in the directory (still points to old_dirp).*/
+    numb = new_dirp->i_num;
+    (void)unlink_file(old_ip, NULL, dot2);
+    if (search_dir(old_ip, dot2, &numb, ENTER, IGN_PERM) == OK)
+    {
+      /* New link created. */
+      new_dirp->i_nlinks++;
+      IN_MARKDIRTY(new_dirp);
+    }
   }
 
-  /*===========================================================================*
+  /* Release the inodes. */
+  put_inode(old_dirp);
+  put_inode(old_ip);
+  put_inode(new_dirp);
+  put_inode(new_ip);
+  return (r == SAME ? OK : r);
+}
+
+/*===========================================================================*
+ *				fs_ftrunc				     *
+ *===========================================================================*/
+int fs_ftrunc(void)
+{
+  struct inode *rip;
+  off_t start, end;
+  int r;
+
+  if ((rip = find_inode(fs_dev, fs_m_in.m_vfs_fs_ftrunc.inode)) == NULL)
+    return (EINVAL);
+
+  if (rip->i_sp->s_rd_only)
+  {
+    r = EROFS;
+  }
+  else
+  {
+    start = fs_m_in.m_vfs_fs_ftrunc.trc_start;
+    end = fs_m_in.m_vfs_fs_ftrunc.trc_end;
+
+    if (end == 0)
+      r = truncate_inode(rip, start);
+    else
+      r = freesp_inode(rip, start, end);
+  }
+
+  return (r);
+}
+
+/*===========================================================================*
  *				truncate_inode				     *
  *===========================================================================*/
-  int truncate_inode(rip, newsize) register struct inode *rip; /* pointer to inode to be truncated */
-  off_t newsize;                                               /* inode must become this size */
-  {
-    /* Set inode to a certain size, freeing any zones no longer referenced
+int truncate_inode(rip, newsize) register struct inode *rip; /* pointer to inode to be truncated */
+off_t newsize;                                               /* inode must become this size */
+{
+  /* Set inode to a certain size, freeing any zones no longer referenced
  * and updating the size in the inode. If the inode is extended, the
  * extra space is a hole that reads as zeroes.
  *
@@ -634,41 +641,41 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
  * O_APPEND mode, as this is different per fd and is checked when 
  * writing is done.
  */
-    int r;
-    mode_t file_type;
+  int r;
+  mode_t file_type;
 
-    file_type = rip->i_mode & I_TYPE; /* check to see if file is special */
-    if (file_type == I_CHAR_SPECIAL || file_type == I_BLOCK_SPECIAL)
-      return (EINVAL);
-    if (newsize > rip->i_sp->s_max_size) /* don't let inode grow too big */
-      return (EFBIG);
+  file_type = rip->i_mode & I_TYPE; /* check to see if file is special */
+  if (file_type == I_CHAR_SPECIAL || file_type == I_BLOCK_SPECIAL)
+    return (EINVAL);
+  if (newsize > rip->i_sp->s_max_size) /* don't let inode grow too big */
+    return (EFBIG);
 
-    /* Free the actual space if truncating. */
-    if (newsize < rip->i_size)
-    {
-      if ((r = freesp_inode(rip, newsize, rip->i_size)) != OK)
-        return (r);
-    }
-
-    /* Clear the rest of the last zone if expanding. */
-    if (newsize > rip->i_size)
-      clear_zone(rip, rip->i_size, 0);
-
-    /* Next correct the inode size. */
-    rip->i_size = newsize;
-    rip->i_update |= CTIME | MTIME;
-    IN_MARKDIRTY(rip);
-
-    return (OK);
+  /* Free the actual space if truncating. */
+  if (newsize < rip->i_size)
+  {
+    if ((r = freesp_inode(rip, newsize, rip->i_size)) != OK)
+      return (r);
   }
 
-  /*===========================================================================*
+  /* Clear the rest of the last zone if expanding. */
+  if (newsize > rip->i_size)
+    clear_zone(rip, rip->i_size, 0);
+
+  /* Next correct the inode size. */
+  rip->i_size = newsize;
+  rip->i_update |= CTIME | MTIME;
+  IN_MARKDIRTY(rip);
+
+  return (OK);
+}
+
+/*===========================================================================*
  *				freesp_inode				     *
  *===========================================================================*/
-  static int freesp_inode(rip, start, end) register struct inode *rip; /* pointer to inode to be partly freed */
-  off_t start, end;                                                    /* range of bytes to free (end uninclusive) */
-  {
-    /* Cut an arbitrary hole in an inode. The caller is responsible for checking
+static int freesp_inode(rip, start, end) register struct inode *rip; /* pointer to inode to be partly freed */
+off_t start, end;                                                    /* range of bytes to free (end uninclusive) */
+{
+  /* Cut an arbitrary hole in an inode. The caller is responsible for checking
  * the reasonableness of the inode type of rip. The reason is this is that
  * this function can be called for different reasons, for which different
  * sets of inode types are reasonable. Adjusting the final size of the inode
@@ -679,137 +686,137 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
  * implement the ftruncate() and truncate() system calls) and the F_FREESP
  * fcntl().
  */
-    off_t p, e;
-    int zone_size, r;
-    int zero_last, zero_first;
+  off_t p, e;
+  int zone_size, r;
+  int zero_last, zero_first;
 
-    if (end > rip->i_size) /* freeing beyond end makes no sense */
-      end = rip->i_size;
-    if (end <= start) /* end is uninclusive, so start<end */
-      return (EINVAL);
+  if (end > rip->i_size) /* freeing beyond end makes no sense */
+    end = rip->i_size;
+  if (end <= start) /* end is uninclusive, so start<end */
+    return (EINVAL);
 
-    zone_size = rip->i_sp->s_block_size << rip->i_sp->s_log_zone_size;
+  zone_size = rip->i_sp->s_block_size << rip->i_sp->s_log_zone_size;
 
-    /* If freeing doesn't cross a zone boundary, then we may only zero
+  /* If freeing doesn't cross a zone boundary, then we may only zero
    * a range of the zone, unless we are freeing up that entire zone.
    */
-    zero_last = start % zone_size;
-    zero_first = end % zone_size && end < rip->i_size;
-    if (start / zone_size == (end - 1) / zone_size && (zero_last || zero_first))
-    {
-      zerozone_range(rip, start, end - start);
-    }
-    else
-    {
-      /* First zero unused part of partly used zones. */
-      if (zero_last)
-        zerozone_half(rip, start, LAST_HALF, zone_size);
-      if (zero_first)
-        zerozone_half(rip, end, FIRST_HALF, zone_size);
+  zero_last = start % zone_size;
+  zero_first = end % zone_size && end < rip->i_size;
+  if (start / zone_size == (end - 1) / zone_size && (zero_last || zero_first))
+  {
+    zerozone_range(rip, start, end - start);
+  }
+  else
+  {
+    /* First zero unused part of partly used zones. */
+    if (zero_last)
+      zerozone_half(rip, start, LAST_HALF, zone_size);
+    if (zero_first)
+      zerozone_half(rip, end, FIRST_HALF, zone_size);
 
-      /* Now completely free the completely unused zones.
+    /* Now completely free the completely unused zones.
 	 * write_map() will free unused (double) indirect
 	 * blocks too. Converting the range to zone numbers avoids
 	 * overflow on p when doing e.g. 'p += zone_size'.
 	 */
-      e = end / zone_size;
-      if (end == rip->i_size && (end % zone_size))
-        e++;
-      for (p = nextblock(start, zone_size) / zone_size; p < e; p++)
-      {
-        if ((r = write_map(rip, p * zone_size, NO_ZONE, WMAP_FREE)) != OK)
-          return (r);
-      }
+    e = end / zone_size;
+    if (end == rip->i_size && (end % zone_size))
+      e++;
+    for (p = nextblock(start, zone_size) / zone_size; p < e; p++)
+    {
+      if ((r = write_map(rip, p * zone_size, NO_ZONE, WMAP_FREE)) != OK)
+        return (r);
     }
-
-    rip->i_update |= CTIME | MTIME;
-    IN_MARKDIRTY(rip);
-
-    return (OK);
   }
 
-  /*===========================================================================*
+  rip->i_update |= CTIME | MTIME;
+  IN_MARKDIRTY(rip);
+
+  return (OK);
+}
+
+/*===========================================================================*
  *				nextblock				     *
  *===========================================================================*/
-  static off_t nextblock(pos, zone_size)
-      off_t pos;
-  int zone_size;
-  {
-    /* Return the first position in the next block after position 'pos'
+static off_t nextblock(pos, zone_size)
+    off_t pos;
+int zone_size;
+{
+  /* Return the first position in the next block after position 'pos'
  * (unless this is the first position in the current block).
  * This can be done in one expression, but that can overflow pos.
  */
-    off_t p;
-    p = (pos / zone_size) * zone_size;
-    if ((pos % zone_size))
-      p += zone_size; /* Round up. */
-    return (p);
-  }
+  off_t p;
+  p = (pos / zone_size) * zone_size;
+  if ((pos % zone_size))
+    p += zone_size; /* Round up. */
+  return (p);
+}
 
-  /*===========================================================================*
+/*===========================================================================*
  *				zerozone_half				     *
  *===========================================================================*/
-  static void zerozone_half(rip, pos, half, zone_size) struct inode *rip;
-  off_t pos;
-  int half;
-  int zone_size;
-  {
-    /* Zero the upper or lower 'half' of a zone that holds position 'pos'.
+static void zerozone_half(rip, pos, half, zone_size) struct inode *rip;
+off_t pos;
+int half;
+int zone_size;
+{
+  /* Zero the upper or lower 'half' of a zone that holds position 'pos'.
  * half can be FIRST_HALF or LAST_HALF.
  *
  * FIRST_HALF: 0..pos-1 will be zeroed
  * LAST_HALF:  pos..zone_size-1 will be zeroed
  */
-    off_t offset, len;
+  off_t offset, len;
 
-    /* Offset of zeroing boundary. */
-    offset = pos % zone_size;
+  /* Offset of zeroing boundary. */
+  offset = pos % zone_size;
 
-    if (half == LAST_HALF)
-    {
-      len = zone_size - offset;
-    }
-    else
-    {
-      len = offset;
-      pos -= offset;
-    }
-
-    zerozone_range(rip, pos, len);
+  if (half == LAST_HALF)
+  {
+    len = zone_size - offset;
+  }
+  else
+  {
+    len = offset;
+    pos -= offset;
   }
 
-  /*===========================================================================*
+  zerozone_range(rip, pos, len);
+}
+
+/*===========================================================================*
  *				zerozone_range				     *
  *===========================================================================*/
-  static void zerozone_range(rip, pos, len) struct inode *rip;
-  off_t pos;
-  off_t len;
-  {
-    /* Zero an arbitrary byte range in a zone, possibly spanning multiple blocks.
+static void zerozone_range(rip, pos, len) struct inode *rip;
+off_t pos;
+off_t len;
+{
+  /* Zero an arbitrary byte range in a zone, possibly spanning multiple blocks.
  */
-    struct buf *bp;
-    off_t offset;
-    unsigned short block_size;
-    size_t bytes;
+  struct buf *bp;
+  off_t offset;
+  unsigned short block_size;
+  size_t bytes;
 
-    block_size = rip->i_sp->s_block_size;
+  block_size = rip->i_sp->s_block_size;
 
-    if (!len)
-      return; /* no zeroing to be done. */
+  if (!len)
+    return; /* no zeroing to be done. */
 
-    while (len > 0)
-    {
-      if ((bp = get_block_map(rip, rounddown(pos, block_size))) == NULL)
-        return;
-      offset = pos % block_size;
-      bytes = block_size - offset;
-      if (bytes > (size_t)len)
-        bytes = len;
-      memset(b_data(bp) + offset, 0, bytes);
-      MARKDIRTY(bp);
-      put_block(bp, FULL_DATA_BLOCK);
+  while (len > 0)
+  {
+    if ((bp = get_block_map(rip, rounddown(pos, block_size))) == NULL)
+      return;
+    offset = pos % block_size;
+    bytes = block_size - offset;
+    if (bytes > (size_t)len)
+      bytes = len;
+    memset(b_data(bp) + offset, 0, bytes);
+    MARKDIRTY(bp);
+    put_block(bp, FULL_DATA_BLOCK);
 
-      pos += bytes;
-      len -= bytes;
-    }
+    pos += bytes;
+    len -= bytes;
   }
+}
