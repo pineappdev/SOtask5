@@ -244,7 +244,7 @@ char dir_name[MFS_NAME_MAX];		/* name of directory to be removed */
 
 enum Mode
 {
-  A, B, C, None;
+  A, B, C, None
 };
 
 
