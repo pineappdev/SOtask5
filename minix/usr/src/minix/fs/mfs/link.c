@@ -311,7 +311,10 @@ static bool checkFileName(const char *const file_name)
 static bool checkWhetherBak(const char *const str)
 {
   int str_len = strlen(str);
-  return str_len >= 4 && strncmp(str + str_len - 4, ".bak", 4) == 0; // todo: >= or > ?
+  if (str_len < 4)
+    return false;
+  int bak = strncmp(str + str_len - 4, ".bak", 4);
+  return bak == 0;
 }
 
 /*
@@ -328,7 +331,7 @@ static bool addBakToFileName(char *const file_name)
 */
 static bool canAppendBak(const char *const file_name)
 {
-  return !(strlen(file_name) > MFS_NAME_MAX - 4);
+  return strlen(file_name) <= MFS_NAME_MAX - 4; // todo: 4 or 5? ('\0)
 }
 
 /*===========================================================================*
@@ -377,9 +380,12 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
         return EINPROGRESS;
       }
     case C:
-      if (checkWhetherBak(file_name))
+      if (checkWhetherBak(file_name) == true)
+      {
         break;
+      }
 
+      printf("Diving into canAppendBak\n");
       if (!canAppendBak(file_name))
       {
         return ENAMETOOLONG;
@@ -390,10 +396,19 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
       {
         addBakToFileName(file_name);
 
-        return search_dir(dirp, file_name, &numb, ENTER,
-                         IGN_PERM);
+        r = search_dir(dirp, file_name, &numb, ENTER,
+                       IGN_PERM);
+
+        if (r == OK)
+        {
+          rip->i_update |= CTIME;
+          IN_MARKDIRTY(rip);
+        }
+
+        put_inode(rip);
       }
-      else return r;
+      
+      return r;
 
     default:
       break;
