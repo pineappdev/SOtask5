@@ -385,7 +385,6 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
         break;
       }
 
-      printf("Diving into canAppendBak\n");
       if (!canAppendBak(file_name))
       {
         return ENAMETOOLONG;
@@ -395,6 +394,8 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
       if (r == OK)
       {
         addBakToFileName(file_name);
+
+        numb = rip->i_num;
 
         r = search_dir(dirp, file_name, &numb, ENTER,
                        IGN_PERM);
