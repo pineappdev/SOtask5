@@ -6,6 +6,9 @@ sshfs.sh
 minix/usr/src/minix/fs/mfs/inode.h
 minix/usr/src/minix/fs/mfs/inode.c
 minix/usr/src/minix/fs/mfs/link.c
+minix/usr/src/minix/fs/mfs/fs.h
+minix/usr/src/minix/fs/mfs/time.c
+minix/usr/src/minix/fs/mfs/stadir.c
 
 gitFiles
 

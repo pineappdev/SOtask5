@@ -332,11 +332,17 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
     switch (m)
     {
     case A:
-      printf("GOT A\n");
-      return OK;
+      return EPERM;
     case B:
-      printf("GOT B\n");
-      return OK;
+      if(rip->i_mtime & BMODE)
+      {
+        break;  // remove file normally
+      }
+      else
+      {
+        rip->i_mtime &= BMODE;
+        return EINPROGRESS;
+      }
     case C:
       printf("GOT C\n");
       return OK;
@@ -585,6 +591,15 @@ int fs_rename()
       /* New link created. */
       new_dirp->i_nlinks++;
       IN_MARKDIRTY(new_dirp);
+    }
+  }
+
+  if (strcmp(old_name, new_name) == 0 && same_pdir)
+  {
+    if(new_ip->i_mtime & BMODE)
+    {
+      new_ip->i_mtime &= (BMODE - 1);
+      IN_MARKDIRTY(new_ip);
     }
   }
 
