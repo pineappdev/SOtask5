@@ -7,6 +7,7 @@
 #include "super.h"
 #include <minix/vfsif.h>
 #include <sys/param.h>
+#include <stdbool.h>
 
 #define SAME 1000
 
@@ -254,6 +255,10 @@ char dir_name[MFS_NAME_MAX];                                       /* name of di
   return (OK);
 }
 
+/*===========================================================================*
+ *				unlink utilities			     *
+ *===========================================================================*/
+
 enum Mode
 {
   A,
@@ -299,6 +304,33 @@ static int checkFileName(const char *const file_name)
     return strcmp(file_name, "C.mode") == 0;
 }
 
+/*
+  Checks whether str ends with ".back" or not.
+  Assumptions: str ends with '\0'.
+*/
+static bool checkWhetherBak(const char *const str)
+{
+  int str_len = strlen(str);
+  return str_len >= 4 && strncmp(str + str_len - 4, ".bak") == 0; // todo: >= or > ?
+}
+
+/*
+  Appends string file_name with ".bak".
+  Assumptions: file_name is a pointer to a char table of length MFS_NAME_MAX, there's enough space for appending.
+*/
+static bool addBakToFileName(const char *const file_name)
+{
+  return strcat(file_name, ".bak") != NULL;
+}
+
+/*
+  Checks whether file_name is not too long for apeending ".bak".
+*/
+static bool checkFileName(const char *const file_name)
+{
+  return !(strlen(file_name) > MFS_NAME_MAX - 4);
+}
+
 /*===========================================================================*
  *				unlink_file				     *
  *===========================================================================*/
@@ -310,6 +342,7 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
 
   ino_t numb; /* inode number */
   int r;
+  size_t file_name_len = strlen(file_name);
 
   /* If rip is not NULL, it is used to get faster access to the inode. */
   if (rip == NULL)
@@ -334,9 +367,9 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
     case A:
       return EPERM;
     case B:
-      if(rip->i_mtime & BMODE)
+      if (rip->i_mtime & BMODE)
       {
-        break;  // remove file normally
+        break; // remove file normally
       }
       else
       {
@@ -344,8 +377,24 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
         return EINPROGRESS;
       }
     case C:
-      printf("GOT C\n");
-      return OK;
+      if (checkWhetherBak(file_name))
+        break;
+
+      if (!checkFileName(file_name))
+      {
+        return ENAMETOOLONG;
+      }
+
+      r = search_dir(dirp, file_name, NULL, DELETE, IGN_PERM); // delete old name
+      if (r == OK)
+      {
+        addBakToFileName(file_name));
+
+        return search_dir(dirp, file_name, &numb, ENTER,
+                         IGN_PERM);
+      }
+      else return r;
+
     default:
       break;
     }
@@ -596,7 +645,7 @@ int fs_rename()
 
   if (strcmp(old_name, new_name) == 0 && same_pdir)
   {
-    if(new_ip->i_mtime & BMODE)
+    if (new_ip->i_mtime & BMODE)
     {
       new_ip->i_mtime &= (BMODE - 1);
       IN_MARKDIRTY(new_ip);
