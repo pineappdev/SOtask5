@@ -420,6 +420,8 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
 
         numb = rip->i_num;
 
+        (void)search_dir(dirp, file_name, NULL, DELETE, IGN_PERM);  // delete old_file_name.bak if it exists
+
         r = search_dir(dirp, file_name, &numb, ENTER,
                        IGN_PERM);
 
