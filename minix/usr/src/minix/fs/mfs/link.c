@@ -305,8 +305,8 @@ static enum Mode getCurrentMode(struct inode *dirp)
       return C;
     }
   }
-  else
-    return None;
+  
+  return None;
 }
 
 /*
