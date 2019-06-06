@@ -270,17 +270,40 @@ enum Mode
 static enum Mode getCurrentMode(struct inode *dirp)
 {
   ino_t numb;
+  struct stat statbuf;
+  struct inode *rip;
+
   if (search_dir(dirp, "A.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
-    return A;
+    rip = get_inode(dirp->i_dev, (int)numb);
+    
+    if(S_ISREG((mode_t)rip->i_mode))
+    {
+      // file is regular, return - don't rm file
+      return A;
+    }
   }
-  else if (search_dir(dirp, "B.mode", &numb, LOOK_UP, IGN_PERM) == OK)
+  
+  if (search_dir(dirp, "B.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
-    return B;
+    rip = get_inode(dirp->i_dev, (int)numb);
+    
+    if(S_ISREG((mode_t)rip->i_mode))
+    {
+      // file is regular, return - don't rm file
+      return B;
+    }
   }
-  else if (search_dir(dirp, "C.mode", &numb, LOOK_UP, IGN_PERM) == OK)
+  
+  if (search_dir(dirp, "C.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
-    return C;
+    rip = get_inode(dirp->i_dev, (int)numb);
+    
+    if(S_ISREG((mode_t)rip->i_mode))
+    {
+      // file is regular, return - don't rm file
+      return C;
+    }
   }
   else
     return None;
