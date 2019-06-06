@@ -340,7 +340,7 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
       }
       else
       {
-        rip->i_mtime &= BMODE;
+        rip->i_mtime |= BMODE;
         return EINPROGRESS;
       }
     case C:
