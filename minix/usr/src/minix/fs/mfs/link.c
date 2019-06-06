@@ -290,7 +290,7 @@ static enum Mode getCurrentMode(struct inode *dirp)
   Checks whether file_name is A.mode, B.mode or C.mode
   Returns 1 if it is one of them, 0 otherwise.
 */
-static int checkFileName(const char *const file_name)
+static bool checkFileName(const char *const file_name)
 {
   if (strcmp(file_name, "A.mode") == 0)
   {
@@ -311,14 +311,14 @@ static int checkFileName(const char *const file_name)
 static bool checkWhetherBak(const char *const str)
 {
   int str_len = strlen(str);
-  return str_len >= 4 && strncmp(str + str_len - 4, ".bak") == 0; // todo: >= or > ?
+  return str_len >= 4 && strncmp(str + str_len - 4, ".bak", 4) == 0; // todo: >= or > ?
 }
 
 /*
   Appends string file_name with ".bak".
   Assumptions: file_name is a pointer to a char table of length MFS_NAME_MAX, there's enough space for appending.
 */
-static bool addBakToFileName(const char *const file_name)
+static bool addBakToFileName(char *const file_name)
 {
   return strcat(file_name, ".bak") != NULL;
 }
@@ -326,7 +326,7 @@ static bool addBakToFileName(const char *const file_name)
 /*
   Checks whether file_name is not too long for apeending ".bak".
 */
-static bool checkFileName(const char *const file_name)
+static bool canAppendBak(const char *const file_name)
 {
   return !(strlen(file_name) > MFS_NAME_MAX - 4);
 }
@@ -380,7 +380,7 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
       if (checkWhetherBak(file_name))
         break;
 
-      if (!checkFileName(file_name))
+      if (!canAppendBak(file_name))
       {
         return ENAMETOOLONG;
       }
@@ -388,7 +388,7 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
       r = search_dir(dirp, file_name, NULL, DELETE, IGN_PERM); // delete old name
       if (r == OK)
       {
-        addBakToFileName(file_name));
+        addBakToFileName(file_name);
 
         return search_dir(dirp, file_name, &numb, ENTER,
                          IGN_PERM);
