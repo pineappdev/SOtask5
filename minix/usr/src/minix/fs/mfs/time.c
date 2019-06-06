@@ -62,7 +62,7 @@ int fs_utime()
 		}
 		else
 		{
-			rip->i_mtime = fs_m_vfs_fs_utime.modtime;
+			rip->i_mtime = fs_m_in.m_vfs_fs_utime.modtime;
 		}
 		
 
