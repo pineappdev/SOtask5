@@ -270,40 +270,45 @@ enum Mode
 static enum Mode getCurrentMode(struct inode *dirp)
 {
   ino_t numb;
-  struct stat statbuf;
-  struct inode *rip;
+  struct inode *mode_inode;
 
   if (search_dir(dirp, "A.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
-    rip = get_inode(dirp->i_dev, (int)numb);
+    mode_inode = get_inode(dirp->i_dev, (int)numb);
 
-    if (S_ISREG((mode_t)rip->i_mode))
+    if (S_ISREG((mode_t)mode_inode->i_mode))
     {
-      // file is regular, return - don't rm file
+      put_inode(mode_inode);
+      // file is regular, return - got A mode
       return A;
     }
+    put_inode(mode_inode);
   }
 
   if (search_dir(dirp, "B.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
-    rip = get_inode(dirp->i_dev, (int)numb);
+    mode_inode = get_inode(dirp->i_dev, (int)numb);
 
-    if (S_ISREG((mode_t)rip->i_mode))
+    if (S_ISREG((mode_t)mode_inode->i_mode))
     {
-      // file is regular, return - don't rm file
+      put_inode(mode_inode);
+      // file is regular, return - got B mode
       return B;
     }
+    put_inode(mode_inode);
   }
 
   if (search_dir(dirp, "C.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
-    rip = get_inode(dirp->i_dev, (int)numb);
+    mode_inode = get_inode(dirp->i_dev, (int)numb);
 
-    if (S_ISREG((mode_t)rip->i_mode))
+    if (S_ISREG((mode_t)mode_inode->i_mode))
     {
-      // file is regular, return - don't rm file
+      put_inode(mode_inode);
+      // file is regular, return - got C mode
       return C;
     }
+    put_inode(mode_inode);
   }
 
   return None;
@@ -317,11 +322,11 @@ static bool checkFileName(const char *const file_name)
 {
   if (strcmp(file_name, "A.mode") == 0)
   {
-    return 1;
+    return true;
   }
   else if (strcmp(file_name, "B.mode") == 0)
   {
-    return 1;
+    return true;
   }
   else
     return strcmp(file_name, "C.mode") == 0;
@@ -403,15 +408,22 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
     switch (m)
     {
     case A:
+      put_inode(rip);
       return EPERM;
     case B:
       if (rip->i_mtime & BMODE)
       {
+        rip->i_mtime &= !BMODE; // file's going to be deleted now, clear the BMODE bit from the inode for future generations
+        rip->i_update |= CTIME;
+        IN_MARKDIRTY(rip);
         break; // remove file normally
       }
       else
       {
         rip->i_mtime |= BMODE;
+        rip->i_update |= CTIME;
+        IN_MARKDIRTY(rip);
+        put_inode(rip);
         return EINPROGRESS;
       }
     case C:
@@ -422,6 +434,7 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
 
       if (!canAppendBak(file_name))
       {
+        put_inode(rip);
         return ENAMETOOLONG;
       }
 
@@ -432,10 +445,14 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
         fileBak = get_inode(dirp->i_dev, (int)number);
         if (fileBak == NULL || S_ISREG((mode_t)fileBak->i_mode))
         {
+          put_inode(fileBak);
+          put_inode(rip);
           return EEXIST;
         }
         else // it was mentioned there are only going to be files and directories in the test, so if it's not a file...
         {
+          put_inode(fileBak);
+          put_inode(rip);
           return EISDIR;
         }
       }
