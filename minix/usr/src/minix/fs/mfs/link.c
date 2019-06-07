@@ -345,6 +345,11 @@ static bool checkWhetherBak(const char *const str)
   return bak == 0;
 }
 
+static bool isRegularFile(const struct inode * const ptr)
+{
+  return S_ISREG((mode_t)ptr->i_mode);
+}
+
 /*
   Appends string file_name with ".bak".
   Assumptions: file_name is a pointer to a char table of length MFS_NAME_MAX, there's enough space for appending.
@@ -402,7 +407,7 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
     dup_inode(rip); /* inode will be returned with put_inode */
   }
 
-  if (!checkFileName(file_name))
+  if (!checkFileName(file_name) && isRegularFile(rip))
   {
     enum Mode m = getCurrentMode(dirp);
     switch (m)
