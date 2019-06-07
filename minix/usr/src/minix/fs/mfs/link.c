@@ -276,36 +276,36 @@ static enum Mode getCurrentMode(struct inode *dirp)
   if (search_dir(dirp, "A.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
     rip = get_inode(dirp->i_dev, (int)numb);
-    
-    if(S_ISREG((mode_t)rip->i_mode))
+
+    if (S_ISREG((mode_t)rip->i_mode))
     {
       // file is regular, return - don't rm file
       return A;
     }
   }
-  
+
   if (search_dir(dirp, "B.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
     rip = get_inode(dirp->i_dev, (int)numb);
-    
-    if(S_ISREG((mode_t)rip->i_mode))
+
+    if (S_ISREG((mode_t)rip->i_mode))
     {
       // file is regular, return - don't rm file
       return B;
     }
   }
-  
+
   if (search_dir(dirp, "C.mode", &numb, LOOK_UP, IGN_PERM) == OK)
   {
     rip = get_inode(dirp->i_dev, (int)numb);
-    
-    if(S_ISREG((mode_t)rip->i_mode))
+
+    if (S_ISREG((mode_t)rip->i_mode))
     {
       // file is regular, return - don't rm file
       return C;
     }
   }
-  
+
   return None;
 }
 
@@ -350,6 +350,16 @@ static bool addBakToFileName(char *const file_name)
 }
 
 /*
+  Writes '\0' to file_name_length - 4 (so that it seems file_name doesn't end with .bak, but with '\0'bak isntead).
+  Assumptions: file_name already ends with .bak'\0'.
+*/
+static void deleteBakFromFileName(char *const file_name)
+{
+  size_t len = strlen(file_name);
+  file_name[len - 4] = '\0';
+}
+
+/*
   Checks whether file_name is not too long for apeending ".bak".
 */
 static bool canAppendBak(const char *const file_name)
@@ -366,9 +376,11 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
 {
   /* Unlink 'file_name'; rip must be the inode of 'file_name' or NULL. */
 
-  ino_t numb; /* inode number */
+  ino_t numb;   /* inode number */
+  ino_t number; /* another inode number */
   int r;
   size_t file_name_len = strlen(file_name);
+  struct inode *fileBak;
 
   /* If rip is not NULL, it is used to get faster access to the inode. */
   if (rip == NULL)
@@ -413,45 +425,57 @@ char file_name[MFS_NAME_MAX];                                    /* name of file
         return ENAMETOOLONG;
       }
 
-      r = search_dir(dirp, file_name, NULL, DELETE, IGN_PERM); // delete old name
+      addBakToFileName(file_name);
+
+      if (search_dir(dirp, file_name, &number, LOOK_UP, IGN_PERM) == OK) // check, whether old_name.bak already exists
+      {
+        fileBak = get_inode(dirp->i_dev, (int)number);
+        if (fileBak == NULL || S_ISREG((mode_t)fileBak->i_mode))
+        {
+          return EEXIST;
+        }
+        else // it was mentioned there are only going to be files and directories in the test, so if it's not a file...
+        {
+          return EISDIR;
+        }
+      }
+
+      numb = rip->i_num;
+
+      r = search_dir(dirp, file_name, &numb, ENTER,
+                     IGN_PERM);
+
       if (r == OK)
       {
-        addBakToFileName(file_name);
-
-        numb = rip->i_num;
-
-        (void)search_dir(dirp, file_name, NULL, DELETE, IGN_PERM);  // delete old_file_name.bak if it exists
-
-        r = search_dir(dirp, file_name, &numb, ENTER,
-                       IGN_PERM);
-
+        deleteBakFromFileName(file_name);
+        r = search_dir(dirp, file_name, NULL, DELETE, IGN_PERM); // delete old_name
         if (r == OK)
         {
           rip->i_update |= CTIME;
           IN_MARKDIRTY(rip);
         }
-
-        put_inode(rip);
       }
-      
-      return r;
 
-    default:
-      break;
-    }
+      put_inode(rip);
+
+    return r;
+
+  default:
+    break;
   }
+}
 
-  r = search_dir(dirp, file_name, NULL, DELETE, IGN_PERM);
+r = search_dir(dirp, file_name, NULL, DELETE, IGN_PERM);
 
-  if (r == OK)
-  {
-    rip->i_nlinks--; /* entry deleted from parent's dir */
-    rip->i_update |= CTIME;
-    IN_MARKDIRTY(rip);
-  }
+if (r == OK)
+{
+  rip->i_nlinks--; /* entry deleted from parent's dir */
+  rip->i_update |= CTIME;
+  IN_MARKDIRTY(rip);
+}
 
-  put_inode(rip);
-  return (r);
+put_inode(rip);
+return (r);
 }
 
 /*===========================================================================*
